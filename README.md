@@ -17,7 +17,7 @@ conda env create -f environment.yml --name primease
 conda activate primease
 
 #run the main script
-streamlit run main_streamlit.py
+streamlit run tool/main_streamlit.py
 ```
 ## Use
 This script opens the tool in the browser window.
