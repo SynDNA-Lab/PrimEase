@@ -98,7 +98,9 @@ You can download all the primers at the same time using the button **Download al
 1) Set specific parameters for primer3
 When you check the box, you have access to a drop where you can select a settings file that should be used by primer3 instead of the default parameters. An example of the expected structure is given in the *Example *file folder of the github.
 
+
 <img width="591" height="156" alt="image" src="https://github.com/user-attachments/assets/aea19a6c-3b87-4a88-9a9b-2bec57f5c2a7" />
+
 
 2) Set a specific PCR product size range
 You can select a range of size for the PCR produt that is gonna overwrite the value given in the parameters. It allows fast modification.
@@ -106,14 +108,24 @@ You can select a range of size for the PCR produt that is gonna overwrite the va
 <img width="589" height="101" alt="image" src="https://github.com/user-attachments/assets/57e2f516-46fb-4a33-9b30-e412d5829d76" />
 
 3) Test alignment of the primers on an host genome
-This option enables you to quickly prevent off-target amplification in the host organism. On the selecting box you can either select
-1) No genome (default)
-2) E.coli genome
-3) The genome of your choice (Drop the file in the box)
+This option enables you to quickly prevent off-target amplification in one (or several) host organism. On the selecting box you can select
 
-<img width="584" height="160" alt="image" src="https://github.com/user-attachments/assets/4f142609-188f-4da7-bed4-e52c94a4b791" />
+- No genome (default)
+- E.coli genome (NCBI ref : Assembly ASM584v2 GCA_000005845.2)
+- S.cerevisiae genome (NCBI ref : Genome R64 GCA_000146045.2)
 
-When this option is modified, the next running might be a bit longer due to the calculation of the index.
+<img width="764" height="209" alt="image" src="https://github.com/user-attachments/assets/4f692e51-e2ef-4e5b-99d9-17da324691a2" />
+
+- The genome of your choice (Drop the file in the box). In this case you will receive an id corresponding to the genome you just uploaded, you can use it later to reuse the same genome (we plan to clean the file every 24 hours on the website).
+
+<img width="803" height="545" alt="image" src="https://github.com/user-attachments/assets/e569215e-0476-45d5-9538-195b6ba51939" />
+
+You can also remove genomes from the list using the selecting tool. In case several genomes are selected, the tool will only show primers that align to none of the genomes.
+
+<img width="767" height="355" alt="image" src="https://github.com/user-attachments/assets/d1eab8b3-1a41-46bc-84f8-d33949d24533" />
+
+
+
 
 
 
