@@ -8,6 +8,8 @@ import glob
 import streamlit as st 
 import tempfile 
 import pandas as pd
+import uuid 
+
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
@@ -57,16 +59,16 @@ def initial_cleanup () -> None :
                 print(f"Error deleting {file}: {e}")
 
     # Remove Bowtie index files if the directory exists
-    bowtie_dir = os.path.join("bowtie_index", "host")
-    if os.path.isdir(bowtie_dir):
-        for file in glob.glob(os.path.join(bowtie_dir, "*.ebwt")):
-            try:
-                os.remove(file)
-                print(f"Deleted: {file}")
-            except Exception as e:
-                print(f"Error deleting {file}: {e}")
-    else:
-        print(f"Directory not found: {bowtie_dir}")
+    # bowtie_dir = os.path.join("bowtie_index", "host")
+    # if os.path.isdir(bowtie_dir):
+    #     for file in glob.glob(os.path.join(bowtie_dir, "*.ebwt")):
+    #         try:
+    #             os.remove(file)
+    #             print(f"Deleted: {file}")
+    #         except Exception as e:
+    #             print(f"Error deleting {file}: {e}")
+    # else:
+    #     print(f"Directory not found: {bowtie_dir}")
 
     print("Cleanup completed!")
 
@@ -107,7 +109,6 @@ def cleanup(config:Config) -> None:
 def main_sequence_of_interest(uploaded_expected_structure) -> None:
     st.title("Primer design from :red[_a single sequence of interest_]")
     config = Config()
-
     expected_structure_path = None
     if type(uploaded_expected_structure) == str :
         expected_structure_path = uploaded_expected_structure
@@ -130,31 +131,120 @@ def main_sequence_of_interest(uploaded_expected_structure) -> None:
             specific_file = True
         else:
             st.warning("No settings file uploaded yet.")
+
+    # --- session state initialization ---
+    if "host_genome_ids" not in st.session_state:
+        st.session_state.host_genome_ids = []
+
+    if "uploaded_genome_ids" not in st.session_state:
+        st.session_state.uploaded_genome_ids = []
+
+
+    # --- UI ---
     options = st.selectbox(
-            "Add genome to prevent off-target amplification with an host organism ", 
-            ("No", "E.coli genome", "Other")
+        "Add genome to prevent off-target amplification with a host organism",
+        ("None","E.coli reference genome", "S.cerevisiae reference genome", "Other")
+    )
+
+    host_dir = os.path.join(os.getcwd(), "bowtie_index/host")
+    os.makedirs(host_dir, exist_ok=True)
+
+
+    # --- predefined genomes ---
+    if options == "E.coli reference genome":
+        genome_id = "reference_ecoli"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/ecoli.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("E.coli added as host")
+
+    elif options == "S.cerevisiae reference genome":
+        genome_id = "reference_scerevisiae"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/scerevisiae.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("S.cerevisiae added as host")
+
+
+    # --- custom genome ---
+    elif options == "Other":
+        if "uploaded_genomes" not in st.session_state:
+            # dictionary: filename -> genome_id
+            st.session_state.uploaded_genomes = {}
+
+        uploaded_hosts = st.file_uploader(
+            "Drop your host genome(s) here",
+            type=["fasta", "fa"],
+            accept_multiple_files=True
         )
-    if options == "No" : 
-        bowtie_dir = os.path.join("bowtie_index", "host")
-        if os.path.isdir(bowtie_dir):
-            for file in glob.glob(os.path.join(bowtie_dir, "host.fasta")):
-                try:
-                    os.remove(file)
-                    print(f"Deleted: {file}")
-                except Exception as e:
-                    print(f"Error deleting {file}: {e}")
-    elif options == "E.coli genome" : 
-        shutil.copy("bowtie_index/reference_genomes/e.coli.fasta", "bowtie_index/host/host.fasta")
-        st.success("E.coli added as host")
-    elif options == "Other" : 
-        uploaded_host = st.file_uploader("Drop your host genome here", type=["fasta","fa"])
-        if uploaded_host:
-            save_path_host = os.path.join(os.getcwd(), "bowtie_index/host/host.fasta")
-            with open(save_path_host, "wb") as f:
-                f.write(uploaded_host.read())
-            st.success("Host genome uploaded")
-        else:
-            st.warning("No host genome uploaded yet.")
+
+        for uploaded_host in uploaded_hosts:
+            filename = uploaded_host.name
+
+            # Check if this file was already uploaded
+            if filename not in st.session_state.uploaded_genomes:
+                genome_id = uuid.uuid4().hex
+                save_path = os.path.join(host_dir, f"{genome_id}.fasta")
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_host.read())
+
+                # store the id keyed by filename
+                st.session_state.uploaded_genomes[filename] = genome_id
+
+                # add to active genomes list
+                st.session_state.host_genome_ids.append(genome_id)
+
+                
+            else:
+                genome_id = st.session_state.uploaded_genomes[filename]
+                if genome_id not in st.session_state.host_genome_ids:
+                    st.session_state.host_genome_ids.append(genome_id)
+
+            st.success(f"Host genome uploaded with ID: {genome_id}")
+
+        st.divider()
+
+        # reuse existing genome
+        given_ids = st.text_input("Paste the ID associated with your genome:")
+
+        if st.button("Add existing genomes"):
+            for gid in [x.strip() for x in given_ids.split(",") if x.strip()]:
+                host_path = os.path.join(host_dir, f"{gid}.fasta")
+                if os.path.exists(host_path):
+                    if gid not in st.session_state.host_genome_ids:
+                        st.session_state.host_genome_ids.append(gid)
+                    if gid not in st.session_state.uploaded_genome_ids:
+                        st.session_state.uploaded_genome_ids.append(gid)
+                    st.success(f"Genome ID {gid} added")
+                else:
+                    st.error(f"No genome found with ID {gid}")
+
+        st.divider()
+
+    # --- display final list ---
+    st.write("Active host genomes:")
+    st.write(st.session_state.host_genome_ids)
+    
+    # --- dynamically remove genomes ---
+    st.write("Currently active host genome IDs:")
+    remove_ids = st.multiselect(
+        "Select genome(s) to remove",
+        st.session_state.host_genome_ids
+    )
+    if st.button("Remove selected genomes"):
+        for gid in remove_ids:
+            if gid in st.session_state.host_genome_ids:
+                st.session_state.host_genome_ids.remove(gid)
+                st.success(f"Genome ID {gid} removed")
+
+    st.divider()
+
 
     st.subheader("Paste the sequence of interest")
     seq = st.text_input("Paste Sequence of interest")
@@ -202,14 +292,14 @@ def main_sequence_of_interest(uploaded_expected_structure) -> None:
             logging.info("Primer3 finished")
 
             logging.info("Running Bowtie...")
-            bowtie = BowtieInterface(config=config)
+            bowtie = BowtieInterface(config=config,random_identifiers=st.session_state.host_genome_ids)
+            st.session_state.host_genome_ids = []
             logging.info("Bowtie alignment done")
 
             logging.info("Checking off-targets...")
             check_offtargets = OfftargetChecker(
                 primer_candidates=p3interface.primer_sites,
                 bowtie_target=bowtie.result_target,
-                bowtie_genome=bowtie.result_genome,
                 bowtie_host=bowtie.result_host,
                 config=config
             )
@@ -271,31 +361,116 @@ def main_fragments(uploaded_expected_structure) -> None:
             specific_file = True
         else:
             st.warning("No settings file uploaded yet.")
+
+    if "host_genome_ids" not in st.session_state:
+        st.session_state.host_genome_ids = []
+
+    if "uploaded_genome_ids" not in st.session_state:
+        st.session_state.uploaded_genome_ids = []
+
     options = st.selectbox(
-            "Add genome to prevent off-target amplification with the host organism", 
-            ("No", "E.coli genome", "Other")
+        "Add genome to prevent off-target amplification with a host organism",
+        ("None","E.coli reference genome", "S.cerevisiae reference genome", "Other")
+    )
+
+    host_dir = os.path.join(os.getcwd(), "bowtie_index/host")
+    os.makedirs(host_dir, exist_ok=True)
+
+
+    # --- predefined genomes ---
+    if options == "E.coli reference genome":
+        genome_id = "reference_ecoli"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/ecoli.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("E.coli added as host")
+
+    elif options == "S.cerevisiae reference genome":
+        genome_id = "reference_scerevisiae"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/scerevisiae.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("S.cerevisiae added as host")
+
+
+    # --- custom genome ---
+    elif options == "Other":
+        if "uploaded_genomes" not in st.session_state:
+            # dictionary: filename -> genome_id
+            st.session_state.uploaded_genomes = {}
+
+        uploaded_hosts = st.file_uploader(
+            "Drop your host genome(s) here",
+            type=["fasta", "fa"],
+            accept_multiple_files=True
         )
-    if options == "No" : 
-        bowtie_dir = os.path.join("bowtie_index", "host")
-        if os.path.isdir(bowtie_dir):
-            for file in glob.glob(os.path.join(bowtie_dir, "host.fasta")):
-                try:
-                    os.remove(file)
-                    print(f"Deleted: {file}")
-                except Exception as e:
-                    print(f"Error deleting {file}: {e}")
-    elif options == "E.coli genome" : 
-        shutil.copy("bowtie_index/reference_genomes/e.coli.fasta", "bowtie_index/host/host.fasta")
-        st.success("E.coli added as host")
-    elif options == "Other" : 
-        uploaded_host = st.file_uploader("Drop your host genome here", type=["fasta","fa"])
-        if uploaded_host:
-            save_path_host = os.path.join(os.getcwd(), "bowtie_index/host/host.fasta")
-            with open(save_path_host, "wb") as f:
-                f.write(uploaded_host.read())
-            st.success("Host genome uploaded")
-        else:
-            st.warning("No host genome uploaded yet.")
+
+        for uploaded_host in uploaded_hosts:
+            filename = uploaded_host.name
+
+            # Check if this file was already uploaded
+            if filename not in st.session_state.uploaded_genomes:
+                genome_id = uuid.uuid4().hex
+                save_path = os.path.join(host_dir, f"{genome_id}.fasta")
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_host.read())
+
+                # store the id keyed by filename
+                st.session_state.uploaded_genomes[filename] = genome_id
+
+                # add to active genomes list
+                st.session_state.host_genome_ids.append(genome_id)
+
+                
+            else:
+                genome_id = st.session_state.uploaded_genomes[filename]
+                if genome_id not in st.session_state.host_genome_ids:
+                    st.session_state.host_genome_ids.append(genome_id)
+
+            st.success(f"Host genome uploaded with ID: {genome_id}")
+
+        st.divider()
+
+        # reuse existing genome
+        given_ids = st.text_input("Paste the ID associated with your genome:")
+
+        if st.button("Add existing genomes"):
+            for gid in [x.strip() for x in given_ids.split(",") if x.strip()]:
+                host_path = os.path.join(host_dir, f"{gid}.fasta")
+                if os.path.exists(host_path):
+                    if gid not in st.session_state.host_genome_ids:
+                        st.session_state.host_genome_ids.append(gid)
+                    if gid not in st.session_state.uploaded_genome_ids:
+                        st.session_state.uploaded_genome_ids.append(gid)
+                    st.success(f"Genome ID {gid} added")
+                else:
+                    st.error(f"No genome found with ID {gid}")
+
+        st.divider()
+
+    # --- display final list ---
+    st.write("Active host genomes:")
+    st.write(st.session_state.host_genome_ids)
+    
+    # --- dynamically remove genomes ---
+    st.write("Currently active host genome IDs:")
+    remove_ids = st.multiselect(
+        "Select genome(s) to remove",
+        st.session_state.host_genome_ids
+    )
+    if st.button("Remove selected genomes"):
+        for gid in remove_ids:
+            if gid in st.session_state.host_genome_ids:
+                st.session_state.host_genome_ids.remove(gid)
+                st.success(f"Genome ID {gid} removed")
+
+    st.divider()
 
 
     st.subheader("Paste the two overlapping sequences")
@@ -345,14 +520,14 @@ def main_fragments(uploaded_expected_structure) -> None:
             logging.info("Primer3 finished")
 
             logging.info("Running Bowtie")
-            bowtie = BowtieInterface(config=config)
+            bowtie = BowtieInterface(config=config,random_identifiers=st.session_state.host_genome_ids)
+            st.session_state.host_genome_ids = []
             logging.info("Successfully performed bowtie alignments")
 
             logging.info("Offtarget checking")
             check_offtargets = OfftargetChecker(
                 primer_candidates = p3interface.primer_sites,
                 bowtie_target = bowtie.result_target,
-                bowtie_genome = bowtie.result_genome,
                 bowtie_host=bowtie.result_host,
                 config=config
             )
@@ -410,31 +585,111 @@ def main_annotated_genbank(uploaded_expected_structure) -> None:
         else:
             st.warning("No settings file uploaded yet.")
 
+    st.divider()
+    
     options = st.selectbox(
-            "Add genome to prevent off-target amplification with the host organism", 
-            ("No", "E.coli genome", "Other")
+        "Add genome to prevent off-target amplification with a host organism",
+        ("None","E.coli reference genome", "S.cerevisiae reference genome", "Other")
+    )
+
+    host_dir = os.path.join(os.getcwd(), "bowtie_index/host")
+    os.makedirs(host_dir, exist_ok=True)
+
+
+    # --- predefined genomes ---
+    if options == "E.coli reference genome":
+        genome_id = "reference_ecoli"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/ecoli.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("E.coli added as host")
+
+    elif options == "S.cerevisiae reference genome":
+        genome_id = "reference_scerevisiae"
+        if genome_id not in st.session_state.host_genome_ids:
+            st.session_state.host_genome_ids.append(genome_id)
+            shutil.copy(
+                "bowtie_index/reference_genomes/scerevisiae.fasta",
+                f"{host_dir}/{genome_id}.fasta"
+            )
+            st.success("S.cerevisiae added as host")
+
+
+    # --- custom genome ---
+    elif options == "Other":
+        if "uploaded_genomes" not in st.session_state:
+            # dictionary: filename -> genome_id
+            st.session_state.uploaded_genomes = {}
+
+        uploaded_hosts = st.file_uploader(
+            "Drop your host genome(s) here",
+            type=["fasta", "fa"],
+            accept_multiple_files=True
         )
-    if options == "No" : 
-        bowtie_dir = os.path.join("bowtie_index", "host")
-        if os.path.isdir(bowtie_dir):
-            for file in glob.glob(os.path.join(bowtie_dir, "host.fasta")):
-                try:
-                    os.remove(file)
-                    print(f"Deleted: {file}")
-                except Exception as e:
-                    print(f"Error deleting {file}: {e}")
-    elif options == "E.coli genome" : 
-        shutil.copy("bowtie_index/reference_genomes/e.coli.fasta", "bowtie_index/host/host.fasta")
-        st.success("E.coli added as host")
-    elif options == "Other" : 
-        uploaded_host = st.file_uploader("Drop your host genome here", type=["fasta","fa"])
-        if uploaded_host:
-            save_path_host = os.path.join(os.getcwd(), "bowtie_index/host/host.fasta")
-            with open(save_path_host, "wb") as f:
-                f.write(uploaded_host.read())
-            st.success("Host genome uploaded")
-        else:
-            st.warning("No settings file uploaded yet.")
+
+        for uploaded_host in uploaded_hosts:
+            filename = uploaded_host.name
+
+            # Check if this file was already uploaded
+            if filename not in st.session_state.uploaded_genomes:
+                genome_id = uuid.uuid4().hex
+                save_path = os.path.join(host_dir, f"{genome_id}.fasta")
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_host.read())
+
+                # store the id keyed by filename
+                st.session_state.uploaded_genomes[filename] = genome_id
+
+                # add to active genomes list
+                st.session_state.host_genome_ids.append(genome_id)
+
+                
+            else:
+                genome_id = st.session_state.uploaded_genomes[filename]
+                if genome_id not in st.session_state.host_genome_ids:
+                    st.session_state.host_genome_ids.append(genome_id)
+
+            st.success(f"Host genome uploaded with ID: {genome_id}")
+
+        st.divider()
+
+        # reuse existing genome
+        given_ids = st.text_input("Paste the ID associated with your genome:")
+
+        if st.button("Add existing genomes"):
+            for gid in [x.strip() for x in given_ids.split(",") if x.strip()]:
+                host_path = os.path.join(host_dir, f"{gid}.fasta")
+                if os.path.exists(host_path):
+                    if gid not in st.session_state.host_genome_ids:
+                        st.session_state.host_genome_ids.append(gid)
+                    if gid not in st.session_state.uploaded_genome_ids:
+                        st.session_state.uploaded_genome_ids.append(gid)
+                    st.success(f"Genome ID {gid} added")
+                else:
+                    st.error(f"No genome found with ID {gid}")
+
+    st.divider()
+
+    # --- display final list ---
+    st.write("Active host genomes:")
+    st.write(st.session_state.host_genome_ids)
+    
+    # --- dynamically remove genomes ---
+    st.write("Currently active host genome IDs:")
+    remove_ids = st.multiselect(
+        "Select genome(s) to remove",
+        st.session_state.host_genome_ids
+    )
+    if st.button("Remove selected genomes"):
+        for gid in remove_ids:
+            if gid in st.session_state.host_genome_ids:
+                st.session_state.host_genome_ids.remove(gid)
+                st.success(f"Genome ID {gid} removed")
+
+    st.divider()
 
     st.write("Enter minimum and maximum size for the PCR product")
     min_max = st.select_slider("Select a range of size for the PCR product", options=list(range(100, 801)), value=(300, 500),)
@@ -482,14 +737,13 @@ def main_annotated_genbank(uploaded_expected_structure) -> None:
 
                 # Run Bowtie
                 logging.info(f"Running Bowtie")
-                bowtie = BowtieInterface(config=config)
-
+                bowtie = BowtieInterface(config=config,random_identifiers=st.session_state.host_genome_ids)
+                st.session_state.host_genome_ids = []
                 # Off-target checking
                 logging.info(f"Off-target checking")
                 check_offtargets = OfftargetChecker(
                     primer_candidates=p3interface.primer_sites,
                     bowtie_target=bowtie.result_target,
-                    bowtie_genome=bowtie.result_genome,
                     bowtie_host=bowtie.result_host,
                     config=config
                 )

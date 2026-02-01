@@ -12,8 +12,7 @@ from config import Config
 @dataclass
 class OfftargetChecker:
     primer_candidates: pd.DataFrame
-    bowtie_target: BowtieResult 
-    bowtie_genome: BowtieResult 
+    bowtie_target: BowtieResult  
     bowtie_host: BowtieResult
     config: Config
     offtarget_ids: list[int] = field(init=False)
@@ -23,10 +22,8 @@ class OfftargetChecker:
     def __post_init__(self) -> None:
         delete_buffer = []
         delete_buffer.extend(self.get_sponges(self.bowtie_target.result))
-        delete_buffer.extend(self.get_sponges(self.bowtie_genome.result))
 
         delete_buffer.extend(self.filter_offtarget(self.bowtie_target.result))
-        delete_buffer.extend(self.filter_offtarget(self.bowtie_genome.result))
         
         self.offtarget_ids = list(set(delete_buffer))
         logging.info(f"{len(self.offtarget_ids)} Offtargets found")
