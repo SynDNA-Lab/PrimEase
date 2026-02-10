@@ -113,16 +113,11 @@ This option enables you to quickly prevent off-target amplification in one (or s
 - No genome (default)
 - E.coli genome (NCBI ref : Assembly ASM584v2 GCA_000005845.2)
 - S.cerevisiae genome (NCBI ref : Genome R64 GCA_000146045.2)
+- Both E.coli genome (NCBI ref : Assembly ASM584v2 GCA_000005845.2) and S.cerevisiae genome (NCBI ref : Genome R64 GCA_000146045.2)
+<img width="1464" height="483" alt="image" src="https://github.com/user-attachments/assets/831a94e2-b768-4434-9b84-54a656907ab5" />
 
-<img width="764" height="209" alt="image" src="https://github.com/user-attachments/assets/4f692e51-e2ef-4e5b-99d9-17da324691a2" />
 
-- The genome of your choice (Drop the file in the box). In this case you will receive an id corresponding to the genome you just uploaded, you can use it later to reuse the same genome (we plan to clean the file every 24 hours on the website).
 
-<img width="803" height="545" alt="image" src="https://github.com/user-attachments/assets/e569215e-0476-45d5-9538-195b6ba51939" />
-
-You can also remove genomes from the list using the selecting tool. In case several genomes are selected, the tool will only show primers that align to none of the genomes.
-
-<img width="767" height="355" alt="image" src="https://github.com/user-attachments/assets/d1eab8b3-1a41-46bc-84f8-d33949d24533" />
 
 
 
