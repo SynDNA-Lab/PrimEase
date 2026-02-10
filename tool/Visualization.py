@@ -68,6 +68,7 @@ class Visualization:
     def __init__(self, sequence, primers_df, sequence_of_interest_seq):
         self.sequence = str(sequence.upper())
         self.primers = primers_df
+        self.primers = self.primers.reset_index(drop=True)
         self.sequence_of_interest = sequence_of_interest_seq.upper()
         self.processed_features = []
 

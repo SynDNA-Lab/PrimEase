@@ -3,6 +3,7 @@ from subprocess import Popen, PIPE
 from dataclasses import dataclass, field
 
 from config import Config
+import shutil
 import os
 
 
@@ -39,24 +40,42 @@ class BowtieResult:
 
 
     def parse_data(self) -> None:
-        expected_columns = ["name","strand","reference","start","sequence","quality","instances"]
-        
+        expected_columns = [
+            "name", "strand", "reference",
+            "start", "sequence", "quality", "instances"
+        ]
+
+        # File missing or truly empty
         if not os.path.exists(self.result_path) or os.stat(self.result_path).st_size == 0:
-            # empty dataframe but include id/orientation
-            df = pd.DataFrame(columns=expected_columns + ["id","orientation"])
-        else:
-            # read all columns safely
+            self.result = pd.DataFrame(columns=expected_columns + ["id", "orientation"])
+            return
+
+        try:
             df = pd.read_csv(self.result_path, sep="\t", header=None, dtype=str)
-            # keep only first 7 columns
-            df = df.iloc[:, :7] if df.shape[1] >= 7 else pd.DataFrame(columns=expected_columns)
-            df.columns = expected_columns
-            df = df.drop_duplicates()
-        
-            # always add id/orientation even if df is empty
-            df["id"] = df["name"].apply(lambda x: "_".join(x.split("_")[-3:-1]) if pd.notnull(x) else None)
-            df["orientation"] = df["name"].apply(lambda x: x.split("_")[-1] if pd.notnull(x) else None)
+        except pd.errors.EmptyDataError:
+            self.result = pd.DataFrame(columns=expected_columns + ["id", "orientation"])
+            return
+
+        # Not enough columns
+        if df.shape[1] < 7:
+            self.result = pd.DataFrame(columns=expected_columns + ["id", "orientation"])
+            return
+
+        df = df.iloc[:, :7]
+        df.columns = expected_columns
+        df = df.drop_duplicates()
+
+        df["start"] = pd.to_numeric(df["start"], errors="coerce")
+
+        df["id"] = df["name"].apply(
+            lambda x: "_".join(x.split("_")[-3:-1]) if pd.notnull(x) else None
+        )
+        df["orientation"] = df["name"].apply(
+            lambda x: x.split("_")[-1] if pd.notnull(x) else None
+        )
 
         self.result = df
+
 
 
 
@@ -67,7 +86,9 @@ class BowtieResult:
 @dataclass
 class BowtieInterface:
     config: Config
-    random_identifiers : list[str] = field(default_factory=list)
+    task_dir : str = field(default="None")
+    target_dir : str = field(init = False)
+    host_dir : str = field(init = False)
     output_target: str = field(default="bt_target.csv")
     output_host : str = field(default ="bt_host.csv")
     result_target: BowtieResult = field(init=False)
@@ -75,30 +96,38 @@ class BowtieInterface:
 
 
     def __post_init__(self) -> None:
-        self.create_index()
+        Index = self.create_index()
 
         self.run_bowtie(
-            index=f"{self.config.bowtie_path}/target/{BASENAME}", 
+            index=f"{self.target_dir}/target", 
             fasta_path="potential_primers.fasta", 
             output_path=self.output_target)
+        
         host_dfs = []
-        for genome_id in self.random_identifiers:
-            host_index = f"{self.config.bowtie_path}/host/{genome_id}"
-            host_output_path = f"bt_host_{genome_id}.csv"
-            if os.path.exists(f"bowtie_index/host/{genome_id}.1.ebwt"):
+
+        for index_elem in Index:
+
+            host_index = os.path.join(self.task_dir, f"host/{index_elem}")
+            host_output_path = f"bt_host_{index_elem}.csv"
+            print(host_index)
+            if os.path.exists(f"{host_index}.1.ebwt"):
                 self.run_bowtie(index=host_index, fasta_path="potential_primers.fasta", output_path=host_output_path)
-                host_dfs.append(pd.read_csv(host_output_path, sep="\t", header=None))
+                if os.path.exists(host_output_path) and os.stat(host_output_path).st_size > 0:
+                    host_dfs.append(
+                        pd.read_csv(host_output_path, sep="\t", header=None)
+                        )
+                if os.path.exists(host_output_path):
+                    os.remove(host_output_path)
+                    
 
         # Concatenate
-        print(host_dfs)
         if host_dfs:
             combined_df = pd.concat(host_dfs, ignore_index=True)
-            combined_df.to_csv(self.output_host, index=False, header=False)
+            combined_df.to_csv(self.output_host, index=False, header=False, sep="\t")
         else:
             # empty DataFrame if no host genomes
             combined_df = pd.DataFrame()
             combined_df.to_csv(self.output_host, index=False)
-        # Store
         self.result_host = BowtieResult(result_path=self.output_host)
         self.result_target = BowtieResult(result_path=self.output_target)
         
@@ -111,19 +140,32 @@ class BowtieInterface:
             print(stderr.decode("ascii"))
     
 
-    def create_index(self) -> None:
-        btpath = self.config.bowtie_path 
-        targetpath = "../../target.fasta" 
+    def create_index(self) -> list[str]:
+        self.target_dir = os.path.join(self.task_dir, "target/")
+        targetpath = os.path.join(self.target_dir, "target.fasta" )
+        os.makedirs(self.target_dir, exist_ok=True)
+        if not os.path.exists(targetpath):
+            if not os.path.exists("target.fasta"):
+                raise FileNotFoundError(
+                    "target.fasta is missing and was not found in target directory"
+                )
+            shutil.move("target.fasta", targetpath)
 
-        cmd = f"cd {btpath}/target && bowtie-build -f {targetpath} {BASENAME} && cd ../.."
+        cmd = f"cd {self.target_dir} && bowtie-build -f target.fasta {BASENAME} && cd ../../.."
         self.run_command(cmd=cmd)
-        
-        for genome_id in self.random_identifiers:
-            host_fasta = f"bowtie_index/host/{genome_id}.fasta"
-            host_index_file = f"bowtie_index/host/{genome_id}.1.ebwt"
-            if os.path.exists(host_fasta) and not os.path.exists(host_index_file):
-                cmd = f"cd {btpath}/host && bowtie-build -f {genome_id}.fasta {genome_id} && cd ../.."
-                self.run_command(cmd=cmd)
+        Index = []
+        host_dir = os.path.join(self.task_dir,"host")
+        for file in os.listdir(host_dir):
+            print("file",file)
+            host_fasta = os.path.join(host_dir, file)
+            if os.path.isfile(host_fasta):
+                index = os.path.splitext(file)[0]
+                host_index_file = os.path.join("bowtie_index",host_dir,f"{index}.1.ebwt")
+                if os.path.exists(host_fasta) and not os.path.exists(host_index_file):
+                    cmd = f"cd {host_dir} && bowtie-build -f {index}.fasta {index} && cd ../.."
+                    self.run_command(cmd=cmd)
+                Index.append(index)
+        return Index 
         
     def run_bowtie(self, index:str, fasta_path:str, output_path:str) -> None:
         cmd = f"bowtie -x {index} -a -f {fasta_path} -v 3 > {output_path}"

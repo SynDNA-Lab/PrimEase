@@ -22,17 +22,44 @@ class OfftargetChecker:
     def __post_init__(self) -> None:
         delete_buffer = []
         delete_buffer.extend(self.get_sponges(self.bowtie_target.result))
+        delete_buffer.extend(self.get_sponges(self.bowtie_host.result))
 
         delete_buffer.extend(self.filter_offtarget(self.bowtie_target.result))
-        
+        delete_buffer.extend(self.filter_offtarget(self.bowtie_host.result))
+
         self.offtarget_ids = list(set(delete_buffer))
         logging.info(f"{len(self.offtarget_ids)} Offtargets found")
 
-        host_ids = self.get_host_hits(self.bowtie_host.result)
-        logging.info(f"{len(host_ids)} primers align to host genome (will be removed)")
-        delete_buffer.extend(host_ids)
+        self.remove_host_aligned_pairs()
 
         self.create_primer_list()
+
+    def remove_host_aligned_pairs(self) -> None:
+        """
+        Remove primers whose *exact name* appears in both
+        target and host Bowtie outputs.
+        """
+
+        if self.bowtie_host.result.empty:
+            return 
+
+        # 1. Primer names that align to host
+        host_names = set(
+                "_".join(name.split("_")[:-1])   # removes the last token (fwd / rev)
+                for name in self.bowtie_host.result["name"]
+            )
+
+        # 2. Remove primers whose name appears in host
+        self.primer_candidates = self.primer_candidates[
+            ~self.primer_candidates["name"].isin(host_names)
+        ]
+
+        if self.primer_candidates.empty:
+            raise RuntimeError(
+                "No primer left after removing host-aligned primers. "
+                "All primers align to the host genome."
+            )
+
 
 
     def get_sponges(self, data_frame:pd.DataFrame) -> list[str]:
