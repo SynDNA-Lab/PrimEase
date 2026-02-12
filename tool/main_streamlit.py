@@ -587,11 +587,11 @@ def main_annotated_genbank(uploaded_expected_structure) -> None:
                 progress_bar.progress(count / total)
                 st.markdown("---")
 
-            # csv_data = download_df.to_csv(index=False).encode("utf-8")
-            # st.download_button (label="Download all the primers in a csv file",
-            #             data=csv_data,
-            #             file_name="primease.csv",
-            #             icon=":material/download:")
+            csv_data = download_df.to_csv(index=False).encode("utf-8")
+            st.download_button (label="Download all the primers in a csv file (This unloads the results!)",
+                        data=csv_data,
+                        file_name="primease.csv",
+                        icon=":material/download:")
             
             st.success("Primer design completed for all selected sequences!")
 
