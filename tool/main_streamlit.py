@@ -58,27 +58,14 @@ def initial_cleanup () -> None :
             except Exception as e:
                 print(f"Error deleting {file}: {e}")
 
-    # Remove Bowtie index files if the directory exists
-    # bowtie_dir = os.path.join("bowtie_index", "host")
-    # if os.path.isdir(bowtie_dir):
-    #     for file in glob.glob(os.path.join(bowtie_dir, "*.ebwt")):
-    #         try:
-    #             os.remove(file)
-    #             print(f"Deleted: {file}")
-    #         except Exception as e:
-    #             print(f"Error deleting {file}: {e}")
-    # else:
-    #     print(f"Directory not found: {bowtie_dir}")
-
     print("Cleanup completed!")
 
-def cleanup(config:Config) -> None:
+def cleanup(config:Config, task_dir) -> None:
     now = datetime.now()
     folder_name = f"{config.jobname}_{now.strftime('%Y%m%d_%H%M')}"
     os.makedirs(folder_name, exist_ok=True)
 
     files_to_move = [
-        "bt_genome.csv",
         "bt_target.csv",
         "bt_host.csv",
         "potential_primers.fasta",
@@ -105,6 +92,15 @@ def cleanup(config:Config) -> None:
                 os.remove(temp_file)
             except Exception as e:
                 logging.warning(f"Could not remove {temp_file}: {e}")
+    
+    if os.path.exists(task_dir):
+        try:
+            print("host path removed")
+            shutil.rmtree(task_dir)
+        except Exception as e:
+            logging.warning(f"Could not remove {task_dir}: {e}")
+
+
 
 def copy_reference_genome(id):
     # Create a unique host directory
@@ -116,24 +112,25 @@ def copy_reference_genome(id):
     reference_dir = "bowtie_index/reference_genomes"
 
     if id == "Ecoli":
-        shutil.copy(
-            os.path.join(reference_dir, "ecoli.fasta"),
-            os.path.join(host_dir, "host_ecoli.fasta")
-        )
+        keywords = ["ecoli"]
+
     elif id == "Scerevisiae":
-        shutil.copy(
-            os.path.join(reference_dir, "scerevisiae.fasta"),
-            os.path.join(host_dir, "host_scerevisiae.fasta")
-        )
+        keywords = ["scerevisiae"]
+
     elif id == "E.coli + S.cerevisiae":
-        shutil.copy(
-            os.path.join(reference_dir, "ecoli.fasta"),
-            os.path.join(host_dir, "host_ecoli.fasta")
-        )
-        shutil.copy(
-            os.path.join(reference_dir, "scerevisiae.fasta"),
-            os.path.join(host_dir, "host_scerevisiae.fasta")
-        )
+        keywords = ["ecoli", "scerevisiae"]
+
+    else:
+        keywords = []
+
+    for filename in os.listdir(reference_dir):
+        src = os.path.join(reference_dir, filename)
+
+        if os.path.isfile(src):
+            name_lower = filename.lower()
+            if any(keyword in name_lower for keyword in keywords):
+                shutil.copy(src, os.path.join(host_dir, filename))
+
     return task_dir
 
 #-------------------------------------------------------------------Main functions---------------------------------------------------
@@ -275,10 +272,11 @@ def main_sequence_of_interest(uploaded_expected_structure) -> None:
             )
             st.image("primers_plot.png")
 
-            cleanup(config)
-            for path in [save_path_settings, expected_structure_path]:
-                if path and os.path.exists(path):
-                    os.remove(path)
+            if task_dir is not None : 
+                cleanup(config, task_dir)
+                for path in [save_path_settings, expected_structure_path]:
+                    if path and os.path.exists(path):
+                        os.remove(path)
 
         except Exception as e:
             st.error(f"Failed to process DNA fragments: {e}")
@@ -418,11 +416,13 @@ def main_fragments(uploaded_expected_structure) -> None:
                sequence_of_interest_seq=annotator.sequence_of_interest_seq)
             st.image('primers_plot.png')
 
-            cleanup(config)
-            for path in [save_path_settings, expected_structure_path]:
-                if path and os.path.exists(path):
-                    os.remove(path)
-
+            try:  
+                cleanup(config,task_dir)
+                for path in [save_path_settings, expected_structure_path]:
+                    if path and os.path.exists(path):
+                        os.remove(path)
+            except Exception as e : 
+                ""
         except Exception as e:
             st.error(f"Failed to process DNA fragments : {e}")
 
@@ -588,18 +588,64 @@ def main_annotated_genbank(uploaded_expected_structure) -> None:
                 st.markdown("---")
 
             csv_data = download_df.to_csv(index=False).encode("utf-8")
-            st.download_button (label="Download all the primers in a csv file (This unloads the results!)",
+            st.download_button (label="Download all the primers in a csv file (This unloads the results)",
                         data=csv_data,
                         file_name="primease.csv",
                         icon=":material/download:")
             
             st.success("Primer design completed for all selected sequences!")
+    try:  
+        cleanup(config,task_dir)
+        for path in [save_path_settings, expected_structure_path]:
+            if path and os.path.exists(path):
+                os.remove(path)
+    except Exception as e:
+        ""
 
-    cleanup(config)
-    for path in [save_path_settings, expected_structure_path]:
-        if path and os.path.exists(path):
-            os.remove(path)
-        
+#-------------------------------------------------------------UTILITY FUNCTION------------------------------------------------------
+import re
+import io
+
+def fix_genbank_locus(uploaded_file):
+    original_name = uploaded_file.name  # preserve filename
+
+    content = uploaded_file.read()
+
+    if isinstance(content, bytes):
+        content = content.decode("utf-8")
+
+    lines = content.splitlines()
+
+    if lines and lines[0].startswith("LOCUS"):
+        parts = lines[0].split()
+
+        if len(parts) >= 7:
+            _, name, length, bp, mol_type, topology, date = parts[:7]
+
+            fixed_locus = (
+                f"LOCUS       "
+                f"{name:<16}"
+                f"{int(length):>11} bp    "
+                f"{mol_type:<6}"
+                f"{topology:<8}"
+                f"SYN "
+                f"{date}"
+            )
+
+            lines[0] = fixed_locus
+
+    fixed_content = "\n".join(lines) + "\n"
+
+    fixed_file = io.BytesIO(fixed_content.encode("utf-8"))
+
+    # Add name attribute so it behaves like UploadedFile
+    fixed_file.name = original_name
+
+    return fixed_file
+
+
+
+
 
 #---------------------------------------------------------------------Script----------------------------------------------------------
 logging.basicConfig(stream=sys.stdout, encoding='utf-8', level=logging.INFO)
@@ -673,10 +719,18 @@ if st.session_state.get('Continue') and st.session_state.get('Option'):
             main_fragments(uploaded_expected_structure)
 
     elif file_type == "genbank":
+
+        uploaded_expected_structure.seek(0)
+        uploaded_expected_structure = fix_genbank_locus(uploaded_expected_structure)
+
+
         if st.session_state['Option'] == "Annotation in a genbank file":
             main_annotated_genbank(uploaded_expected_structure)
+
         elif st.session_state['Option'] == "Single sequence":
             main_sequence_of_interest(uploaded_expected_structure)
+
         elif st.session_state['Option'] == "Two overlapping sequences":
             main_fragments(uploaded_expected_structure)
+
 

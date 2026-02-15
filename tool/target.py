@@ -17,7 +17,7 @@ class Target:
         ''' Returns the 0-th SeqRecord'''
         file_extension = self.target_path.split(".")[-1]
         print(file_extension)
-        if file_extension in ["gb", "gbk"]:
+        if file_extension in ["gb", "gbk","genbank"]:
             rec_type = "genbank"
         elif file_extension in ["dna"]:
             rec_type = "snapgene"

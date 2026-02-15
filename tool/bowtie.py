@@ -153,19 +153,19 @@ class BowtieInterface:
 
         cmd = f"cd {self.target_dir} && bowtie-build -f target.fasta {BASENAME} && cd ../../.."
         self.run_command(cmd=cmd)
+
+
         Index = []
-        host_dir = os.path.join(self.task_dir,"host")
+        host_dir = os.path.join(self.task_dir, "host")
+
         for file in os.listdir(host_dir):
-            print("file",file)
             host_fasta = os.path.join(host_dir, file)
-            if os.path.isfile(host_fasta):
+
+            if os.path.isfile(host_fasta) and file.lower().endswith(".fasta"):
                 index = os.path.splitext(file)[0]
-                host_index_file = os.path.join("bowtie_index",host_dir,f"{index}.1.ebwt")
-                if os.path.exists(host_fasta) and not os.path.exists(host_index_file):
-                    cmd = f"cd {host_dir} && bowtie-build -f {index}.fasta {index} && cd ../.."
-                    self.run_command(cmd=cmd)
                 Index.append(index)
-        return Index 
+
+        return Index
         
     def run_bowtie(self, index:str, fasta_path:str, output_path:str) -> None:
         cmd = f"bowtie -x {index} -a -f {fasta_path} -v 3 > {output_path}"
